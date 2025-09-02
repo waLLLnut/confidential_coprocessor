@@ -1,0 +1,20 @@
+[toolchain]
+package_manager = "yarn"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+confidential_coprocessor = "CCxx3Q6jHtuXDndGJ5xHndGmA9v5YZoAQN7rSK6GQX9S"
+lending_demo = "3zrcNymK3tobevtSMpzBNTEiQJyKrakr766QmzRFrTtT"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

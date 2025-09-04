@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confidential Coprocessor Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background: #0B0B10; color: white; font-family: system-ui; }
+        .card { background: #11131A; border: 1px solid #1C1F2A; }
+        .purple { background: #6F4FF2; }
+        .purple-hover:hover { background: #5A3FD6; }
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            background: #11131A;
+            border: 1px solid;
+            border-radius: 8px;
+            z-index: 1000;
+            animation: slideIn 0.3s ease;
+        }
+        .toast.success { border-color: #10b981; color: #10b981; }
+        .toast.error { border-color: #ef4444; color: #ef4444; }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .updating { animation: pulse 1s infinite; }
+        .confidential-badge {
+            background: linear-gradient(135deg, #6F4FF2, #4B3FFF);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- Navigation -->
+    <nav class="border-b border-gray-800 mb-6">
+        <div class="container mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-8">
+                <h1 class="text-xl font-bold" style="color: #6F4FF2;">Confidential Coprocessor</h1>
+                <div class="text-sm text-gray-400">Privacy-Preserving Lending Protocol</div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="text-sm">
+                    <span class="text-gray-400">Network:</span>
+                    <span class="text-green-400">Devnet</span>
+                </div>
+                <button onclick="connectWallet()" class="px-4 py-2 purple purple-hover rounded-lg">
+                    <span id="wallet-btn">Connect Wallet</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mx-auto px-4">
+        <div class="grid grid-cols-12 gap-6">
+            <!-- Left side -->
+            <div class="col-span-8 space-y-6">
+                <!-- Price Chart -->
+                <div class="card rounded-2xl p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-semibold">SOL/USDC Oracle Feed</h2>
+                        <div class="flex items-center gap-4">
+                            <div class="text-sm text-gray-400">Last Update: <span id="last-update">--</span></div>
+                            <div class="flex gap-2">
+                                <button class="px-3 py-1 text-sm rounded-lg hover:bg-gray-800">15m</button>
+                                <button class="px-3 py-1 text-sm rounded-lg hover:bg-gray-800">1H</button>
+                                <button class="px-3 py-1 text-sm rounded-lg hover:bg-gray-800">1D</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="height: 300px; position: relative;">
+                        <canvas id="priceChart"></canvas>
+                        <div class="absolute top-4 right-4 text-right">
+                            <div id="currentPrice" class="text-2xl font-bold">$142.75</div>
+                            <div id="priceChange" class="text-green-500 text-sm">+5.23%</div>
+                            <div class="text-xs text-gray-400 mt-1">Pyth Network</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- User Balances -->
+                <div class="card rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                        User Balances
+                        <span class="confidential-badge">Encrypted</span>
+                    </h3>
+                    <div class="grid grid-cols-2 gap-6">
+                        <!-- Confidential Balance -->
+                        <div>
+                            <h4 class="text-sm text-gray-400 mb-3">Confidential (Private)</h4>
+                            <div class="space-y-3">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-gray-300">SOL</span>
+                                    <div class="text-right">
+                                        <div id="conf-sol" class="font-mono font-bold">🔒 Hidden</div>
+                                        <div class="text-xs text-gray-500">Encrypted on-chain</div>
+                                    </div>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-gray-300">USDC</span>
+                                    <div class="text-right">
+                                        <div id="conf-usdc" class="font-mono font-bold">🔒 Hidden</div>
+                                        <div class="text-xs text-gray-500">Encrypted on-chain</div>
+                                    </div>
+                                </div>
+                                <div class="pt-2 border-t border-gray-800">
+                                    <div class="text-xs text-gray-500">Commitment Hash:</div>
+                                    <div class="font-mono text-xs text-purple-400">0xab3f...9e2d</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Public Balance -->
+                        <div>
+                            <h4 class="text-sm text-gray-400 mb-3">Public (Vault)</h4>
+                            <div class="space-y-3">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-gray-300">SOL</span>
+                                    <div class="text-right">
+                                        <div id="public-sol" class="font-mono font-bold">0.00</div>
+                                        <div class="text-xs text-gray-500">Vault balance</div>
+                                    </div>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-gray-300">USDC</span>
+                                    <div class="text-right">
+                                        <div id="public-usdc" class="font-mono font-bold">0.00</div>
+                                        <div class="text-xs text-gray-500">Vault balance</div>
+                                    </div>
+                                </div>
+                                <div class="pt-2 border-t border-gray-800">
+                                    <div class="text-xs text-gray-500">Total Value Locked:</div>
+                                    <div id="tvl-value" class="font-mono text-xs text-green-400">$0.00</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Oracle Snapshot -->
+                <div class="card rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4 flex items-center justify-between">
+                        Oracle Snapshot
+                        <span id="snapshot-status" class="px-2 py-1 text-xs rounded bg-gray-600">No Snapshot</span>
+                    </h3>
+                    <div id="snapshot-content" class="space-y-3 font-mono text-sm">
+                        <div class="text-gray-500">Waiting for first job submission...</div>
+                    </div>
+                </div>
+
+                <!-- Live Feed -->
+                <div class="card rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Live Computation Feed</h3>
+                    <div id="live-feed" class="space-y-2 max-h-48 overflow-y-auto text-sm">
+                        <div class="text-gray-400">System initialized. Waiting for transactions...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right side -->
+            <div class="col-span-4 space-y-6">
+                <!-- Trade Box -->
+                <div class="card rounded-2xl p-6">
+                    <div class="flex gap-2 mb-6">
+                        <button onclick="setTab('deposit')" class="tab-btn flex-1 py-2 px-4 rounded-lg text-sm purple">Deposit</button>
+                        <button onclick="setTab('withdraw')" class="tab-btn flex-1 py-2 px-4 rounded-lg text-sm">Withdraw</button>
+                        <button onclick="setTab('borrow')" class="tab-btn flex-1 py-2 px-4 rounded-lg text-sm">Borrow</button>
+                        <button onclick="setTab('liq')" class="tab-btn flex-1 py-2 px-4 rounded-lg text-sm">Liquidation</button>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-xs text-gray-400 mb-1 block">Amount</label>
+                            <input id="amount-input" type="text" placeholder="0.00 SOL" class="w-full px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                        </div>
+                        
+                        <div id="extra-input-container" class="hidden">
+                            <label id="extra-label" class="text-xs text-gray-400 mb-1 block">Parameter</label>
+                            <input id="extra-input" type="text" placeholder="" class="w-full px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                        </div>
+
+                        <div class="text-xs text-gray-500 space-y-1">
+                            <div id="info-text">• Deposits are encrypted and added to your confidential balance</div>
+                        </div>
+
+                        <button onclick="submitJob()" class="w-full py-3 purple purple-hover rounded-lg font-semibold">
+                            <span id="submit-btn-text">Deposit</span>
+                        </button>
+                        
+                        <button id="execute-btn" onclick="executeAction()" class="hidden w-full py-3 border border-purple-500 text-purple-500 hover:bg-purple-500 hover:text-white rounded-lg font-semibold">
+                            Execute
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Jobs Table -->
+                <div class="card rounded-2xl p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold">Jobs</h3>
+                        <span id="job-count" class="text-sm text-gray-400">(0)</span>
+                    </div>
+                    <div id="jobs-list" class="space-y-2 max-h-96 overflow-y-auto">
+                        <div class="text-gray-500 text-sm">No jobs submitted yet</div>
+                    </div>
+                </div>
+
+                <!-- Executor Status -->
+                <div class="card rounded-2xl p-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                            <span class="text-sm">Executor Online</span>
+                        </div>
+                        <span class="text-xs text-gray-500">Auto-processing</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let currentTab = 'deposit';
+        let jobs = [];
+        let jobCounter = 1;
+        let currentSnapshot = null;
+        let currentPrice = 142.75;
+        let priceHistory = [];
+        let chart = null;
+        let executedJobs = new Set();
+        let walletConnected = false;
+        
+        // User balances
+        let balances = {
+            confidential: { sol: 10.0, usdc: 1000.0 },
+            public: { sol: 0.0, usdc: 0.0 }
+        };
+
+        // Initialize chart
+        function initChart() {
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            
+            // Generate initial price data
+            for(let i = 0; i < 20; i++) {
+                priceHistory.push({
+                    time: new Date(Date.now() - (20-i) * 10000).toLocaleTimeString(),
+                    price: 142.75 + (Math.random() - 0.5) * 2
+                });
+            }
+            
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: priceHistory.map(p => p.time),
+                    datasets: [{
+                        label: 'SOL/USDC',
+                        data: priceHistory.map(p => p.price),
+                        borderColor: '#6F4FF2',
+                        backgroundColor: 'rgba(111, 79, 242, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            grid: { color: '#1C1F2A' },
+                            ticks: { color: '#666' }
+                        },
+                        y: {
+                            display: true,
+                            grid: { color: '#1C1F2A' },
+                            ticks: { color: '#666' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Connect wallet
+        function connectWallet() {
+            walletConnected = true;
+            document.getElementById('wallet-btn').textContent = 'User1...x4K';
+            showToast('Wallet connected', 'success');
+            initializeSystem();
+        }
+
+        // Initialize system
+        function initializeSystem() {
+            showToast('Config initialized (challenge_window=0)', 'success');
+            addToFeed('System: Config initialized with executor');
+            updateBalances();
+        }
+
+        // Update balances
+        function updateBalances() {
+            // Confidential balances stay hidden but update internally
+            document.getElementById('conf-sol').textContent = '🔒 Hidden';
+            document.getElementById('conf-usdc').textContent = '🔒 Hidden';
+            
+            // Public balances
+            document.getElementById('public-sol').textContent = balances.public.sol.toFixed(2);
+            document.getElementById('public-usdc').textContent = balances.public.usdc.toFixed(2);
+            
+            // TVL
+            const tvl = (balances.public.sol * currentPrice) + balances.public.usdc;
+            document.getElementById('tvl-value').textContent = `$${tvl.toFixed(2)}`;
+        }
+
+        // Auto-record snapshot before job submission
+        function autoRecordSnapshot() {
+            if(!currentSnapshot || Date.now() - currentSnapshot.timestamp > 30000) {
+                const slot = 285000000 + Math.floor((Date.now() - 1700000000000) / 400);
+                currentSnapshot = {
+                    price: currentPrice,
+                    slot: slot,
+                    ptrHash: `0x${Math.random().toString(36).substring(2, 15)}`,
+                    timestamp: Date.now(),
+                    fresh: true
+                };
+                
+                // Update snapshot display
+                document.getElementById('snapshot-status').textContent = 'Fresh';
+                document.getElementById('snapshot-status').className = 'px-2 py-1 text-xs rounded bg-green-600';
+                document.getElementById('snapshot-content').innerHTML = `
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Slot:</span>
+                        <span>${slot.toLocaleString()}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Price:</span>
+                        <span>$${currentPrice.toFixed(2)}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Confidence:</span>
+                        <span>±$0.10</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Source:</span>
+                        <span class="text-purple-400">Pyth Oracle</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">PTR Hash:</span>
+                        <span class="text-xs">${currentSnapshot.ptrHash}</span>
+                    </div>
+                `;
+                
+                addToFeed(`OracleSnapshot: Recorded at slot ${slot} (Price: $${currentPrice.toFixed(2)})`);
+            }
+        }
+
+        // Update price from oracle
+        function updatePrice() {
+            const change = (Math.random() - 0.5) * 2;
+            currentPrice += change;
+            const priceChange = ((change / currentPrice) * 100).toFixed(2);
+            
+            document.getElementById('currentPrice').textContent = `$${currentPrice.toFixed(2)}`;
+            document.getElementById('priceChange').textContent = `${priceChange > 0 ? '+' : ''}${priceChange}%`;
+            document.getElementById('priceChange').className = priceChange > 0 ? 'text-green-500 text-sm' : 'text-red-500 text-sm';
+            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+            
+            // Update chart
+            if(chart) {
+                const now = new Date().toLocaleTimeString();
+                priceHistory.push({ time: now, price: currentPrice });
+                if(priceHistory.length > 30) priceHistory.shift();
+                
+                chart.data.labels = priceHistory.map(p => p.time);
+                chart.data.datasets[0].data = priceHistory.map(p => p.price);
+                chart.update('none');
+            }
+            
+            // Check if snapshot needs refresh
+            if(currentSnapshot && Date.now() - currentSnapshot.timestamp > 120000) {
+                document.getElementById('snapshot-status').textContent = 'Stale';
+                document.getElementById('snapshot-status').className = 'px-2 py-1 text-xs rounded bg-yellow-600';
+            }
+        }
+
+        // Auto-process jobs
+        function autoProcessJobs() {
+            jobs.forEach(job => {
+                // Auto post result after 2 seconds
+                if(job.status === 'Submitted' && Date.now() - job.createdAt > 2000) {
+                    job.status = 'Posted';
+                    renderJobs();
+                    addToFeed(`Executor: Posted result for ${job.id.substring(0, 8)}...`);
+                }
+                // Auto finalize after 4 seconds
+                if(job.status === 'Posted' && Date.now() - job.createdAt > 4000) {
+                    job.status = 'Finalized';
+                    renderJobs();
+                    addToFeed(`Executor: Finalized ${job.id.substring(0, 8)}...`);
+                    
+                    // Update balances for deposit/withdraw
+                    if(job.type === 'DEPOSIT') {
+                        balances.public.sol += parseFloat(job.amount);
+                        balances.confidential.sol -= parseFloat(job.amount);
+                        updateBalances();
+                        showToast('Deposit finalized - Confidential balance updated', 'success');
+                    }
+                }
+            });
+        }
+
+        // Toast notification
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.getElementById('toast-container').appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // Tab selection
+        function setTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('purple');
+                btn.classList.add('hover:bg-gray-800');
+            });
+            event.target.classList.add('purple');
+            
+            const extraContainer = document.getElementById('extra-input-container');
+            const extraInput = document.getElementById('extra-input');
+            const extraLabel = document.getElementById('extra-label');
+            const executeBtn = document.getElementById('execute-btn');
+            const submitBtnText = document.getElementById('submit-btn-text');
+            const infoText = document.getElementById('info-text');
+            
+            extraContainer.classList.add('hidden');
+            executeBtn.classList.add('hidden');
+            
+            if (tab === 'deposit') {
+                submitBtnText.textContent = 'Deposit';
+                infoText.textContent = '• Deposits are encrypted and added to your confidential balance';
+            } else if (tab === 'withdraw') {
+                submitBtnText.textContent = 'Submit Withdraw Job';
+                executeBtn.classList.remove('hidden');
+                executeBtn.textContent = 'Execute Withdraw';
+                infoText.textContent = '• Withdrawals move funds from vault to your wallet';
+            } else if (tab === 'borrow') {
+                submitBtnText.textContent = 'Submit Borrow Job';
+                extraContainer.classList.remove('hidden');
+                extraLabel.textContent = 'LTV (Loan-to-Value)';
+                extraInput.placeholder = 'Basis points (e.g. 5000 for 50%)';
+                infoText.textContent = '• Borrowing against collateral with encrypted LTV';
+            } else if (tab === 'liq') {
+                submitBtnText.textContent = 'Submit Liquidation Check';
+                extraContainer.classList.remove('hidden');
+                extraLabel.textContent = 'Min Collateral Ratio';
+                extraInput.placeholder = 'Basis points (e.g. 15000 for 150%)';
+                executeBtn.classList.remove('hidden');
+                executeBtn.textContent = 'Execute Liquidation';
+                infoText.textContent = '• Liquidation eligibility checked against oracle snapshot';
+            }
+        }
+
+        // Submit job
+        function submitJob() {
+            if(!walletConnected) {
+                showToast('Please connect wallet first', 'error');
+                return;
+            }
+            
+            // Auto-record snapshot before job
+            autoRecordSnapshot();
+            
+            const amount = document.getElementById('amount-input').value || '2';
+            const functionIds = {
+                'deposit': 100,
+                'withdraw': 300,
+                'borrow': 200,
+                'liq': 400
+            };
+            
+            const jobId = `Job${jobCounter++}${Math.random().toString(36).substring(7)}`;
+            const fid = functionIds[currentTab];
+            
+            const job = {
+                id: jobId,
+                functionId: fid,
+                status: 'Submitted',
+                type: currentTab.toUpperCase(),
+                amount: amount,
+                createdAt: Date.now(),
+                snapshot: currentTab === 'liq' ? currentSnapshot.ptrHash : null
+            };
+            
+            jobs.unshift(job);
+            renderJobs();
+            
+            // Add to live feed
+            addToFeed(`JobSubmitted: ${jobId.substring(0, 8)}... (${currentTab.toUpperCase()}, ${amount} SOL)`);
+            showToast(`${currentTab} job submitted`, 'success');
+            
+            // Clear input
+            document.getElementById('amount-input').value = '';
+        }
+
+        // Execute action
+        function executeAction() {
+            const finalizedJob = jobs.find(j => 
+                j.type === currentTab.toUpperCase() && 
+                j.status === 'Finalized' && 
+                !executedJobs.has(j.id)
+            );
+            
+            if(!finalizedJob) {
+                showToast('No finalized job available for execution', 'error');
+                return;
+            }
+            
+            if(executedJobs.has(finalizedJob.id)) {
+                showToast('Error: job-consumed (replay protection)', 'error');
+                return;
+            }
+            
+            if(currentTab === 'withdraw') {
+                balances.public.sol -= parseFloat(finalizedJob.amount);
+                balances.confidential.sol += parseFloat(finalizedJob.amount);
+                updateBalances();
+                showToast('Withdraw executed - Funds moved to wallet', 'success');
+                addToFeed(`WithdrawExecuted: ${finalizedJob.amount} SOL transferred`);
+            } else if(currentTab === 'liq') {
+                showToast('✓ Validation ✓ Freshness ✓ Binding → Liquidation executed', 'success');
+                addToFeed(`LiquidationExecuted: Position liquidated`);
+            }
+            
+            executedJobs.add(finalizedJob.id);
+        }
+
+        // Render jobs
+        function renderJobs() {
+            const jobsList = document.getElementById('jobs-list');
+            document.getElementById('job-count').textContent = `(${jobs.length})`;
+            
+            if(jobs.length === 0) {
+                jobsList.innerHTML = '<div class="text-gray-500 text-sm">No jobs submitted yet</div>';
+                return;
+            }
+            
+            jobsList.innerHTML = jobs.map(job => `
+                <div class="p-3 bg-gray-900 rounded-lg">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-mono">${job.id.substring(0, 8)}...</span>
+                        <span class="px-2 py-1 text-xs rounded text-white ${
+                            job.status === 'Finalized' ? 'bg-green-600' :
+                            job.status === 'Posted' ? 'bg-purple-600' :
+                            'bg-gray-600'
+                        }">${job.status}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-gray-400">
+                            ${job.type} • ${job.amount} SOL
+                        </span>
+                        ${job.status === 'Finalized' && (job.functionId === 300 || job.functionId === 400) && !executedJobs.has(job.id) ? 
+                            '<span class="text-xs text-purple-400">Ready</span>' : ''}
+                    </div>
+                    ${job.snapshot ? 
+                        `<div class="text-xs text-gray-500 mt-1">Snapshot: ${job.snapshot.substring(0, 12)}...</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        // Add to feed
+        function addToFeed(message) {
+            const feedHtml = `
+                <div class="flex items-center gap-2">
+                    <span style="color: #6F4FF2;">●</span>
+                    <span class="text-gray-400">${message}</span>
+                    <span class="text-xs text-gray-500">${new Date().toLocaleTimeString()}</span>
+                </div>
+            `;
+            const feed = document.getElementById('live-feed');
+            feed.insertAdjacentHTML('afterbegin', feedHtml);
+            
+            // Keep only last 20 entries
+            while(feed.children.length > 20) {
+                feed.removeChild(feed.lastChild);
+            }
+        }
+
+        // Initialize on page load
+        window.onload = function() {
+            initChart();
+            
+            // Auto-connect wallet after 1 second
+            setTimeout(connectWallet, 1000);
+            
+            // Start auto-updates
+            setInterval(updatePrice, 10000); // Price updates every 10s
+            setInterval(autoProcessJobs, 500); // Job processing every 0.5s
+            
+            // Initial price update
+            updatePrice();
+        };
+    </script>
+</body>
+</html>

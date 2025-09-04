@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confidential Coprocessor Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #0B0B10; color: white; font-family: system-ui; }
+        .card { background: #11131A; border: 1px solid #1C1F2A; }
+        .purple { background: #6F4FF2; }
+        .purple-hover:hover { background: #5A3FD6; }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="border-b border-gray-800 mb-6">
+        <div class="container mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-8">
+                <h1 class="text-xl font-bold" style="color: #6F4FF2;">Confidential Coprocessor</h1>
+                <div class="flex gap-4">
+                    <a href="#" onclick="showPage('lending')" class="text-white hover:text-purple-400">Lending</a>
+                    <a href="#" onclick="showPage('executor')" class="text-gray-400 hover:text-purple-400">Executor</a>
+                </div>
+            </div>
+            <button class="px-4 py-2 purple purple-hover rounded-lg">Connect Wallet</button>
+        </div>
+    </nav>
+
+    <!-- Lending Page -->
+    <div id="lending-page" class="container mx-auto px-4">
+        <div class="grid grid-cols-12 gap-6">
+            <!-- Left side -->
+            <div class="col-span-8 space-y-6">
+                <!-- Price Chart -->
+                <div class="card rounded-2xl p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-semibold">SOL/USDC</h2>
+                        <div class="flex gap-2">
+                            <button class="px-3 py-1 text-sm rounded-lg hover:bg-gray-800">15m</button>
+                            <button class="px-3 py-1 text-sm rounded-lg hover:bg-gray-800">1H</button>
+                            <button class="px-3 py-1 text-sm rounded-lg hover:bg-gray-800">1D</button>
+                        </div>
+                    </div>
+                    <div class="h-64 flex items-center justify-center">
+                        <div class="text-center">
+                            <div class="text-4xl font-bold">$142.75</div>
+                            <div class="text-green-500 text-sm mt-2">+5.23%</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Oracle Snapshot -->
+                <div class="card rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Oracle Snapshot</h3>
+                    <div class="space-y-3 font-mono text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Slot:</span>
+                            <span>285,000,000</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Price:</span>
+                            <span>$142.75</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Status:</span>
+                            <span class="px-2 py-1 text-xs rounded bg-green-600">Fresh (<300 slots)</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">PTR Hash:</span>
+                            <span class="text-xs">0xabc123...def456</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Feed -->
+                <div class="card rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Live Computation Feed</h3>
+                    <div id="live-feed" class="space-y-2 max-h-48 overflow-y-auto text-sm">
+                        <div class="text-gray-400">Waiting for events...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right side -->
+            <div class="col-span-4 space-y-6">
+                <!-- Trade Box -->
+                <div class="card rounded-2xl p-6">
+                    <div class="flex gap-2 mb-6">
+                        <button onclick="setTab('deposit')" class="tab-btn flex-1 py-2 px-4 rounded-lg text-sm purple">Deposit</button>
+                        <button onclick="setTab('withdraw')" class="tab-btn flex-1 py-2 px-4 rounded-lg text-sm">Withdraw</button>
+                        <button onclick="setTab('borrow')" class="tab-btn flex-1 py-2 px-4 rounded-lg text-sm">Borrow</button>
+                        <button onclick="setTab('liq')" class="tab-btn flex-1 py-2 px-4 rounded-lg text-sm">Liquidation</button>
+                    </div>
+
+                    <div class="space-y-4">
+                        <input type="text" placeholder="Amount (SOL)" class="w-full px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                        <input id="extra-input" type="text" placeholder="LTV Basis Points" class="hidden w-full px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                        <button onclick="submitJob()" class="w-full py-3 purple purple-hover rounded-lg font-semibold">
+                            <span id="submit-btn-text">Deposit & Submit Job</span>
+                        </button>
+                        <button id="execute-btn" class="hidden w-full py-3 border border-purple-500 text-purple-500 hover:bg-purple-500 hover:text-white rounded-lg font-semibold">
+                            Execute
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Jobs Table -->
+                <div class="card rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Jobs</h3>
+                    <div id="jobs-list" class="space-y-2 max-h-96 overflow-y-auto">
+                        <div class="p-3 bg-gray-900 rounded-lg">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-xs font-mono">Job1Abc...xyz</span>
+                                <span class="px-2 py-1 text-xs rounded bg-green-600">Finalized</span>
+                            </div>
+                            <div class="text-xs text-gray-400">FID: 100 (DEPOSIT)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Executor Page -->
+    <div id="executor-page" class="container mx-auto px-4 hidden">
+        <div class="grid grid-cols-12 gap-6">
+            <div class="col-span-8">
+                <div class="card rounded-2xl p-6">
+                    <h2 class="text-xl font-semibold mb-6">Executor Actions</h2>
+                    
+                    <!-- Post Result -->
+                    <div class="space-y-4 mb-8">
+                        <h3 class="text-lg font-medium" style="color: #6F4FF2;">Post Result</h3>
+                        <select class="w-full px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                            <option>Select a job...</option>
+                            <option>Job1Abc...xyz - FID 100 (DEPOSIT)</option>
+                            <option>Job2Def...uvw - FID 300 (WITHDRAW)</option>
+                        </select>
+                        <button onclick="postResult()" class="w-full py-3 purple purple-hover rounded-lg font-semibold">Post Result</button>
+                    </div>
+
+                    <!-- Finalize -->
+                    <div class="space-y-4 mb-8 pt-8 border-t border-gray-800">
+                        <h3 class="text-lg font-medium" style="color: #6F4FF2;">Finalize Job</h3>
+                        <button onclick="finalizeJob()" class="w-full py-3 bg-green-600 hover:bg-green-700 rounded-lg font-semibold">Finalize Selected Job</button>
+                    </div>
+
+                    <!-- Record Snapshot -->
+                    <div class="space-y-4 pt-8 border-t border-gray-800">
+                        <h3 class="text-lg font-medium" style="color: #6F4FF2;">Record Oracle Snapshot</h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            <input type="text" placeholder="Price (e.g. 142.75)" class="px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                            <input type="text" placeholder="Confidence (e.g. 0.10)" class="px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                        </div>
+                        <button onclick="recordSnapshot()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold">Record Snapshot</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-4">
+                <div class="card rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Executor Logs</h3>
+                    <div id="executor-logs" class="space-y-2 max-h-96 overflow-y-auto font-mono text-sm">
+                        <div class="text-gray-500">No logs yet...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentTab = 'deposit';
+        let jobCounter = 1;
+
+        function showPage(page) {
+            document.getElementById('lending-page').classList.toggle('hidden', page !== 'lending');
+            document.getElementById('executor-page').classList.toggle('hidden', page !== 'executor');
+        }
+
+        function setTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('purple');
+                btn.classList.add('hover:bg-gray-800');
+            });
+            event.target.classList.add('purple');
+            
+            // Update UI based on tab
+            const extraInput = document.getElementById('extra-input');
+            const executeBtn = document.getElementById('execute-btn');
+            const submitBtnText = document.getElementById('submit-btn-text');
+            
+            extraInput.classList.add('hidden');
+            executeBtn.classList.add('hidden');
+            
+            if (tab === 'deposit') {
+                submitBtnText.textContent = 'Deposit & Submit Job';
+            } else if (tab === 'withdraw') {
+                submitBtnText.textContent = 'Submit Withdraw Job';
+                executeBtn.classList.remove('hidden');
+                executeBtn.textContent = 'Execute Withdraw';
+            } else if (tab === 'borrow') {
+                submitBtnText.textContent = 'Submit Borrow Job';
+                extraInput.classList.remove('hidden');
+                extraInput.placeholder = 'LTV Basis Points (e.g. 5000 for 50%)';
+            } else if (tab === 'liq') {
+                submitBtnText.textContent = 'Submit Liquidation Job';
+                extraInput.classList.remove('hidden');
+                extraInput.placeholder = 'Min CR Basis Points (e.g. 15000 for 150%)';
+                executeBtn.classList.remove('hidden');
+                executeBtn.textContent = 'Execute Liquidation';
+            }
+        }
+
+        function submitJob() {
+            const functionIds = {
+                'deposit': 100,
+                'withdraw': 300,
+                'borrow': 200,
+                'liq': 400
+            };
+            
+            const jobId = `Job${jobCounter++}${Math.random().toString(36).substring(7)}`;
+            const fid = functionIds[currentTab];
+            
+            // Add to jobs list
+            const jobsHtml = `
+                <div class="p-3 bg-gray-900 rounded-lg">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-mono">${jobId.substring(0, 8)}...</span>
+                        <span class="px-2 py-1 text-xs rounded bg-gray-600">Submitted</span>
+                    </div>
+                    <div class="text-xs text-gray-400">FID: ${fid} (${currentTab.toUpperCase()})</div>
+                </div>
+            `;
+            document.getElementById('jobs-list').insertAdjacentHTML('afterbegin', jobsHtml);
+            
+            // Add to live feed
+            addToFeed(`JobSubmitted: ${jobId.substring(0, 8)}... (FID: ${fid})`);
+        }
+
+        function addToFeed(message) {
+            const feedHtml = `
+                <div class="flex items-center gap-2">
+                    <span style="color: #6F4FF2;">●</span>
+                    <span class="text-gray-400">${message}</span>
+                    <span class="text-xs text-gray-500">slot ${Date.now()}</span>
+                </div>
+            `;
+            const feed = document.getElementById('live-feed');
+            feed.insertAdjacentHTML('afterbegin', feedHtml);
+        }
+
+        function postResult() {
+            const log = `[${new Date().toLocaleTimeString()}] Posting result...
+[${new Date().toLocaleTimeString()}] ✅ Result posted successfully`;
+            document.getElementById('executor-logs').innerHTML = `<div class="text-green-400">${log}</div>` + 
+                document.getElementById('executor-logs').innerHTML;
+            addToFeed('JobPosted: Result commitment submitted');
+        }
+
+        function finalizeJob() {
+            const log = `[${new Date().toLocaleTimeString()}] ✅ Job finalized successfully`;
+            document.getElementById('executor-logs').innerHTML = `<div class="text-green-400">${log}</div>` + 
+                document.getElementById('executor-logs').innerHTML;
+            addToFeed('JobFinalized: Status updated');
+        }
+
+        function recordSnapshot() {
+            const log = `[${new Date().toLocaleTimeString()}] Recording oracle snapshot...
+[${new Date().toLocaleTimeString()}] Price: $142.75
+[${new Date().toLocaleTimeString()}] ✅ Snapshot recorded successfully`;
+            document.getElementById('executor-logs').innerHTML = `<div class="text-blue-400">${log}</div>` + 
+                document.getElementById('executor-logs').innerHTML;
+            addToFeed('OracleSnapshotRecorded: PTR hash generated');
+        }
+    </script>
+</body>
+</html>

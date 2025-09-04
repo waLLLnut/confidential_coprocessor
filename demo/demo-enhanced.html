@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confidential Coprocessor Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background: #0B0B10; color: white; font-family: system-ui; }
+        .card { background: #11131A; border: 1px solid #1C1F2A; }
+        .purple { background: #6F4FF2; }
+        .purple-hover:hover { background: #5A3FD6; }
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            background: #11131A;
+            border: 1px solid;
+            border-radius: 8px;
+            z-index: 1000;
+            animation: slideIn 0.3s ease;
+        }
+        .toast.success { border-color: #10b981; color: #10b981; }
+        .toast.error { border-color: #ef4444; color: #ef4444; }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .updating { animation: pulse 1s infinite; }
+    </style>
+</head>
+<body>
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- Navigation -->
+    <nav class="border-b border-gray-800 mb-6">
+        <div class="container mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-8">
+                <h1 class="text-xl font-bold" style="color: #6F4FF2;">Confidential Coprocessor</h1>
+                <div class="flex gap-4">
+                    <a href="#" onclick="showPage('lending')" class="text-white hover:text-purple-400">Lending</a>
+                    <a href="#" onclick="showPage('executor')" class="text-gray-400 hover:text-purple-400">Executor</a>
+                </div>
+            </div>
+            <button onclick="initConfig()" class="px-4 py-2 purple purple-hover rounded-lg">Initialize Config</button>
+        </div>
+    </nav>
+
+    <!-- Lending Page -->
+    <div id="lending-page" class="container mx-auto px-4">
+        <div class="grid grid-cols-12 gap-6">
+            <!-- Left side -->
+            <div class="col-span-8 space-y-6">
+                <!-- Price Chart -->
+                <div class="card rounded-2xl p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-semibold">SOL/USDC</h2>
+                        <div class="flex gap-2">
+                            <button class="px-3 py-1 text-sm rounded-lg hover:bg-gray-800">15m</button>
+                            <button class="px-3 py-1 text-sm rounded-lg hover:bg-gray-800">1H</button>
+                            <button class="px-3 py-1 text-sm rounded-lg hover:bg-gray-800">1D</button>
+                        </div>
+                    </div>
+                    <div style="height: 300px; position: relative;">
+                        <canvas id="priceChart"></canvas>
+                        <div class="absolute top-4 right-4 text-right">
+                            <div id="currentPrice" class="text-2xl font-bold">$142.75</div>
+                            <div id="priceChange" class="text-green-500 text-sm">+5.23%</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Oracle Snapshot -->
+                <div class="card rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Oracle Snapshot</h3>
+                    <div id="snapshot-content" class="space-y-3 font-mono text-sm">
+                        <div class="text-gray-500">No snapshot recorded</div>
+                    </div>
+                </div>
+
+                <!-- TVL Card -->
+                <div class="card rounded-2xl p-4">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <div class="text-gray-400 text-sm">Total Value Locked</div>
+                            <div id="tvl-value" class="text-2xl font-bold updating">$0</div>
+                        </div>
+                        <div>
+                            <div class="text-gray-400 text-sm">Vault Balance</div>
+                            <div id="vault-balance" class="text-xl font-bold">0 SOL</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Feed -->
+                <div class="card rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Live Computation Feed</h3>
+                    <div id="live-feed" class="space-y-2 max-h-48 overflow-y-auto text-sm">
+                        <div class="text-gray-400">Waiting for events...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right side -->
+            <div class="col-span-4 space-y-6">
+                <!-- Trade Box -->
+                <div class="card rounded-2xl p-6">
+                    <div class="flex gap-2 mb-6">
+                        <button onclick="setTab('deposit')" class="tab-btn flex-1 py-2 px-4 rounded-lg text-sm purple">Deposit</button>
+                        <button onclick="setTab('withdraw')" class="tab-btn flex-1 py-2 px-4 rounded-lg text-sm">Withdraw</button>
+                        <button onclick="setTab('borrow')" class="tab-btn flex-1 py-2 px-4 rounded-lg text-sm">Borrow</button>
+                        <button onclick="setTab('liq')" class="tab-btn flex-1 py-2 px-4 rounded-lg text-sm">Liquidation</button>
+                    </div>
+
+                    <div class="space-y-4">
+                        <input id="amount-input" type="text" placeholder="Amount (SOL)" class="w-full px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                        <input id="extra-input" type="text" placeholder="LTV Basis Points" class="hidden w-full px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                        <button onclick="submitJob()" class="w-full py-3 purple purple-hover rounded-lg font-semibold">
+                            <span id="submit-btn-text">Deposit & Submit Job</span>
+                        </button>
+                        <button id="execute-btn" onclick="executeAction()" class="hidden w-full py-3 border border-purple-500 text-purple-500 hover:bg-purple-500 hover:text-white rounded-lg font-semibold">
+                            Execute
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Jobs Table -->
+                <div class="card rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Jobs <span id="job-count" class="text-sm text-gray-400">(0)</span></h3>
+                    <div id="jobs-list" class="space-y-2 max-h-96 overflow-y-auto">
+                        <div class="text-gray-500 text-sm">No jobs yet</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Executor Page -->
+    <div id="executor-page" class="container mx-auto px-4 hidden">
+        <div class="grid grid-cols-12 gap-6">
+            <div class="col-span-8">
+                <div class="card rounded-2xl p-6">
+                    <h2 class="text-xl font-semibold mb-6">Executor Actions</h2>
+                    
+                    <!-- Post Result -->
+                    <div class="space-y-4 mb-8">
+                        <h3 class="text-lg font-medium" style="color: #6F4FF2;">Post Result</h3>
+                        <select id="job-select" class="w-full px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                            <option value="">Select a job...</option>
+                        </select>
+                        <input id="snapshot-pda-input" type="text" placeholder="Snapshot PDA (for LIQ jobs)" class="w-full px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                        <button onclick="postResult()" class="w-full py-3 purple purple-hover rounded-lg font-semibold">Post Result</button>
+                    </div>
+
+                    <!-- Finalize -->
+                    <div class="space-y-4 mb-8 pt-8 border-t border-gray-800">
+                        <h3 class="text-lg font-medium" style="color: #6F4FF2;">Finalize Job</h3>
+                        <button onclick="finalizeJob()" class="w-full py-3 bg-green-600 hover:bg-green-700 rounded-lg font-semibold">Finalize Selected Job</button>
+                    </div>
+
+                    <!-- Record Snapshot -->
+                    <div class="space-y-4 pt-8 border-t border-gray-800">
+                        <h3 class="text-lg font-medium" style="color: #6F4FF2;">Record Oracle Snapshot</h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            <input id="snapshot-price" type="text" placeholder="Price (e.g. 142.75)" value="142.75" class="px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                            <input id="snapshot-slot" type="text" placeholder="Slot" value="285000000" class="px-4 py-3 bg-gray-900 border border-gray-800 rounded-lg">
+                        </div>
+                        <button onclick="recordSnapshot()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold">Record Snapshot</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-4">
+                <div class="card rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Executor Logs</h3>
+                    <div id="executor-logs" class="space-y-2 max-h-96 overflow-y-auto font-mono text-sm">
+                        <div class="text-gray-500">No logs yet...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let currentTab = 'deposit';
+        let jobs = [];
+        let jobCounter = 1;
+        let currentSnapshot = null;
+        let vaultBalance = 0;
+        let currentPrice = 142.75;
+        let priceHistory = [];
+        let chart = null;
+        let executedJobs = new Set();
+
+        // Initialize chart
+        function initChart() {
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            
+            // Generate initial price data
+            for(let i = 0; i < 20; i++) {
+                priceHistory.push({
+                    time: new Date(Date.now() - (20-i) * 10000).toLocaleTimeString(),
+                    price: 142.75 + (Math.random() - 0.5) * 2
+                });
+            }
+            
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: priceHistory.map(p => p.time),
+                    datasets: [{
+                        label: 'SOL/USDC',
+                        data: priceHistory.map(p => p.price),
+                        borderColor: '#6F4FF2',
+                        backgroundColor: 'rgba(111, 79, 242, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            grid: { color: '#1C1F2A' },
+                            ticks: { color: '#666' }
+                        },
+                        y: {
+                            display: true,
+                            grid: { color: '#1C1F2A' },
+                            ticks: { color: '#666' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update price every 10 seconds
+        function updatePrice() {
+            const change = (Math.random() - 0.5) * 2;
+            currentPrice += change;
+            const priceChange = ((change / currentPrice) * 100).toFixed(2);
+            
+            document.getElementById('currentPrice').textContent = `$${currentPrice.toFixed(2)}`;
+            document.getElementById('priceChange').textContent = `${priceChange > 0 ? '+' : ''}${priceChange}%`;
+            document.getElementById('priceChange').className = priceChange > 0 ? 'text-green-500 text-sm' : 'text-red-500 text-sm';
+            
+            // Update chart
+            if(chart) {
+                const now = new Date().toLocaleTimeString();
+                priceHistory.push({ time: now, price: currentPrice });
+                if(priceHistory.length > 30) priceHistory.shift();
+                
+                chart.data.labels = priceHistory.map(p => p.time);
+                chart.data.datasets[0].data = priceHistory.map(p => p.price);
+                chart.update('none');
+            }
+        }
+
+        // Update TVL every 10 seconds
+        function updateTVL() {
+            const tvl = Math.floor(Math.random() * 1000000 + 1000000);
+            document.getElementById('tvl-value').textContent = `$${tvl.toLocaleString()}`;
+        }
+
+        // Auto-update jobs status
+        function updateJobs() {
+            jobs.forEach(job => {
+                if(job.status === 'Submitted' && Date.now() - job.createdAt > 5000) {
+                    job.status = 'Posted';
+                    renderJobs();
+                    addToFeed(`JobPosted: ${job.id.substring(0, 8)}...`);
+                }
+                if(job.status === 'Posted' && Date.now() - job.createdAt > 10000) {
+                    job.status = 'Finalized';
+                    renderJobs();
+                    addToFeed(`JobFinalized: ${job.id.substring(0, 8)}...`);
+                    showToast('Job finalized successfully', 'success');
+                }
+            });
+        }
+
+        // Toast notification
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.getElementById('toast-container').appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // Page navigation
+        function showPage(page) {
+            document.getElementById('lending-page').classList.toggle('hidden', page !== 'lending');
+            document.getElementById('executor-page').classList.toggle('hidden', page !== 'executor');
+        }
+
+        // Tab selection
+        function setTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('purple');
+                btn.classList.add('hover:bg-gray-800');
+            });
+            event.target.classList.add('purple');
+            
+            const extraInput = document.getElementById('extra-input');
+            const executeBtn = document.getElementById('execute-btn');
+            const submitBtnText = document.getElementById('submit-btn-text');
+            
+            extraInput.classList.add('hidden');
+            executeBtn.classList.add('hidden');
+            
+            if (tab === 'deposit') {
+                submitBtnText.textContent = 'Ensure Vault + Deposit + Submit Job';
+            } else if (tab === 'withdraw') {
+                submitBtnText.textContent = 'Submit Withdraw Job';
+                executeBtn.classList.remove('hidden');
+                executeBtn.textContent = 'Execute Withdraw';
+            } else if (tab === 'borrow') {
+                submitBtnText.textContent = 'Submit Borrow Job';
+                extraInput.classList.remove('hidden');
+                extraInput.placeholder = 'LTV Basis Points (e.g. 5000 for 50%)';
+            } else if (tab === 'liq') {
+                submitBtnText.textContent = 'Submit Liquidation Job';
+                extraInput.classList.remove('hidden');
+                extraInput.placeholder = 'Min CR Basis Points (e.g. 15000 for 150%)';
+                executeBtn.classList.remove('hidden');
+                executeBtn.textContent = 'Execute Liquidation';
+            }
+        }
+
+        // Initialize config
+        function initConfig() {
+            showToast('Config initialized successfully (challenge_window=0)', 'success');
+            addToFeed('ConfigInitialized: executor set, challenge_window=0');
+        }
+
+        // Submit job
+        function submitJob() {
+            const amount = document.getElementById('amount-input').value || '2';
+            const functionIds = {
+                'deposit': 100,
+                'withdraw': 300,
+                'borrow': 200,
+                'liq': 400
+            };
+            
+            const jobId = `Job${jobCounter++}${Math.random().toString(36).substring(7)}`;
+            const fid = functionIds[currentTab];
+            
+            const job = {
+                id: jobId,
+                functionId: fid,
+                status: 'Submitted',
+                type: currentTab.toUpperCase(),
+                amount: amount,
+                createdAt: Date.now()
+            };
+            
+            jobs.unshift(job);
+            renderJobs();
+            
+            // Update job selector in executor
+            updateJobSelector();
+            
+            // Add to live feed
+            addToFeed(`JobSubmitted: ${jobId.substring(0, 8)}... (FID: ${fid}, Amount: ${amount} SOL)`);
+            
+            if(currentTab === 'deposit') {
+                vaultBalance += parseFloat(amount);
+                document.getElementById('vault-balance').textContent = `${vaultBalance.toFixed(2)} SOL`;
+                showToast('Vault created and deposit submitted', 'success');
+            } else {
+                showToast(`${currentTab} job submitted`, 'success');
+            }
+            
+            // Clear input
+            document.getElementById('amount-input').value = '';
+        }
+
+        // Execute action
+        function executeAction() {
+            const finalizedJob = jobs.find(j => j.type === currentTab.toUpperCase() && j.status === 'Finalized' && !executedJobs.has(j.id));
+            
+            if(!finalizedJob) {
+                showToast('No finalized job available for execution', 'error');
+                return;
+            }
+            
+            if(executedJobs.has(finalizedJob.id)) {
+                showToast('Error: job-consumed (replay protection)', 'error');
+                return;
+            }
+            
+            if(currentTab === 'withdraw') {
+                vaultBalance -= parseFloat(finalizedJob.amount);
+                document.getElementById('vault-balance').textContent = `${vaultBalance.toFixed(2)} SOL`;
+                showToast('Withdraw executed successfully', 'success');
+                addToFeed(`WithdrawExecuted: ${finalizedJob.amount} SOL transferred`);
+            } else if(currentTab === 'liq') {
+                if(!currentSnapshot) {
+                    showToast('No oracle snapshot available', 'error');
+                    return;
+                }
+                // Check freshness
+                const currentSlot = parseInt(document.getElementById('snapshot-slot').value) + 100;
+                const age = currentSlot - currentSnapshot.slot;
+                if(age > 300) {
+                    showToast('Snapshot is stale (>300 slots)', 'error');
+                    return;
+                }
+                showToast('✓ Validation passed ✓ Freshness OK ✓ Binding verified → Liquidation executed', 'success');
+                addToFeed(`LiquidationExecuted: ${finalizedJob.amount} SOL liquidated`);
+            }
+            
+            executedJobs.add(finalizedJob.id);
+        }
+
+        // Render jobs
+        function renderJobs() {
+            const jobsList = document.getElementById('jobs-list');
+            document.getElementById('job-count').textContent = `(${jobs.length})`;
+            
+            if(jobs.length === 0) {
+                jobsList.innerHTML = '<div class="text-gray-500 text-sm">No jobs yet</div>';
+                return;
+            }
+            
+            jobsList.innerHTML = jobs.map(job => `
+                <div class="p-3 bg-gray-900 rounded-lg">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-mono">${job.id.substring(0, 8)}...</span>
+                        <span class="px-2 py-1 text-xs rounded text-white ${
+                            job.status === 'Finalized' ? 'bg-green-600' :
+                            job.status === 'Posted' ? 'bg-purple-600' :
+                            'bg-gray-600'
+                        }">${job.status}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-gray-400">FID: ${job.functionId} (${job.type})</span>
+                        ${job.status === 'Finalized' && (job.functionId === 300 || job.functionId === 400) && !executedJobs.has(job.id) ? 
+                            '<button class="text-xs text-purple-400 hover:underline" onclick="executeAction()">Execute</button>' : ''}
+                    </div>
+                    ${currentSnapshot && job.functionId === 400 ? 
+                        `<div class="text-xs text-gray-500 mt-1">Snapshot: ${currentSnapshot.ptrHash.substring(0, 12)}...</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        // Update job selector
+        function updateJobSelector() {
+            const selector = document.getElementById('job-select');
+            selector.innerHTML = '<option value="">Select a job...</option>' +
+                jobs.filter(j => j.status === 'Submitted').map(job => 
+                    `<option value="${job.id}">${job.id.substring(0, 8)}... - FID ${job.functionId} (${job.type})</option>`
+                ).join('');
+        }
+
+        // Add to feed
+        function addToFeed(message) {
+            const feedHtml = `
+                <div class="flex items-center gap-2">
+                    <span style="color: #6F4FF2;">●</span>
+                    <span class="text-gray-400">${message}</span>
+                    <span class="text-xs text-gray-500">slot ${Date.now()}</span>
+                </div>
+            `;
+            const feed = document.getElementById('live-feed');
+            feed.insertAdjacentHTML('afterbegin', feedHtml);
+            
+            // Keep only last 20 entries
+            while(feed.children.length > 20) {
+                feed.removeChild(feed.lastChild);
+            }
+        }
+
+        // Executor functions
+        function postResult() {
+            const selectedJob = document.getElementById('job-select').value;
+            if(!selectedJob) {
+                showToast('Please select a job', 'error');
+                return;
+            }
+            
+            const job = jobs.find(j => j.id === selectedJob);
+            if(job) {
+                job.status = 'Posted';
+                renderJobs();
+                updateJobSelector();
+            }
+            
+            const log = `[${new Date().toLocaleTimeString()}] Posting result for ${selectedJob.substring(0, 8)}...
+[${new Date().toLocaleTimeString()}] ✅ Result posted successfully`;
+            document.getElementById('executor-logs').innerHTML = `<div class="text-green-400">${log.replace(/\n/g, '<br>')}</div>` + 
+                document.getElementById('executor-logs').innerHTML;
+            
+            addToFeed('JobPosted: Result commitment submitted');
+            showToast('Result posted successfully', 'success');
+        }
+
+        function finalizeJob() {
+            const postedJob = jobs.find(j => j.status === 'Posted');
+            if(!postedJob) {
+                showToast('No posted job to finalize', 'error');
+                return;
+            }
+            
+            postedJob.status = 'Finalized';
+            renderJobs();
+            
+            const log = `[${new Date().toLocaleTimeString()}] ✅ Job ${postedJob.id.substring(0, 8)}... finalized`;
+            document.getElementById('executor-logs').innerHTML = `<div class="text-green-400">${log}</div>` + 
+                document.getElementById('executor-logs').innerHTML;
+            
+            addToFeed(`JobFinalized: ${postedJob.id.substring(0, 8)}... ready for execution`);
+            showToast('Job finalized successfully', 'success');
+        }
+
+        function recordSnapshot() {
+            const price = document.getElementById('snapshot-price').value || '142.75';
+            const slot = document.getElementById('snapshot-slot').value || '285000000';
+            
+            currentSnapshot = {
+                price: price,
+                slot: parseInt(slot),
+                ptrHash: `0x${Math.random().toString(36).substring(2, 15)}...`,
+                fresh: true
+            };
+            
+            // Update snapshot card
+            document.getElementById('snapshot-content').innerHTML = `
+                <div class="flex justify-between">
+                    <span class="text-gray-400">Slot:</span>
+                    <span>${slot}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-400">Price:</span>
+                    <span>$${price}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-400">Status:</span>
+                    <span class="px-2 py-1 text-xs rounded bg-green-600">Fresh (<300 slots)</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-400">PTR Hash:</span>
+                    <span class="text-xs">${currentSnapshot.ptrHash}</span>
+                </div>
+            `;
+            
+            const log = `[${new Date().toLocaleTimeString()}] Recording oracle snapshot...
+[${new Date().toLocaleTimeString()}] Price: $${price}
+[${new Date().toLocaleTimeString()}] Slot: ${slot}
+[${new Date().toLocaleTimeString()}] ✅ Snapshot recorded successfully`;
+            document.getElementById('executor-logs').innerHTML = `<div class="text-blue-400">${log.replace(/\n/g, '<br>')}</div>` + 
+                document.getElementById('executor-logs').innerHTML;
+            
+            addToFeed(`OracleSnapshotRecorded: Slot ${slot}, Price $${price}`);
+            showToast('Oracle snapshot recorded', 'success');
+        }
+
+        // Initialize on page load
+        window.onload = function() {
+            initChart();
+            
+            // Start auto-updates
+            setInterval(updatePrice, 10000);
+            setInterval(updateTVL, 10000);
+            setInterval(updateJobs, 1000);
+            
+            // Initial updates
+            updatePrice();
+            updateTVL();
+        };
+    </script>
+</body>
+</html>

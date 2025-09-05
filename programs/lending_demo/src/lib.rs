@@ -11,11 +11,11 @@ use anchor_lang::solana_program::{
     hash::hash,
 };
 
-declare_id!("3zrcNymK3tobevtSMpzBNTEiQJyKrakr766QmzRFrTtT");
+declare_id!("7416mML15yRamg6KTbemgwBZDsXoVmws328Tp8W7Za9y");
 
 pub mod coproc_iface {
     use super::*;
-    anchor_lang::declare_id!("CCxx3Q6jHtuXDndGJ5xHndGmA9v5YZoAQN7rSK6GQX9S");
+    anchor_lang::declare_id!("9FWBcP2fTpjvYpSQmZZm2NkouBifLw5rKtNPyfzkA4zJ");
 
     #[account]
     pub struct Config {
@@ -105,47 +105,67 @@ pub const FID_BORROW:   u16 = 200;
 pub const FID_WITHDRAW: u16 = 300;
 pub const FID_LIQ_ELIGIBILITY: u16 = 400;
 
-// IR operation codes
+// IR operation codes (matching executor/wrapper format)
 pub const OP_ADD: u8 = 0x01;
 pub const OP_SUB: u8 = 0x02;
-pub const OP_MUL: u8 = 0x03;
+pub const OP_MUL: u8 = 0x03;      // Not implemented yet
 pub const OP_MUL_CST: u8 = 0x04;
-pub const OP_GTE: u8 = 0x05;
+pub const OP_GTE: u8 = 0x10;      // Fixed: was 0x05, should be 0x10
 
 // IR bytecode builders for different operations
 pub fn build_deposit_ir() -> Vec<u8> {
     vec![
         OP_ADD,
-        0x00, 0x01, // input[0] (balance)  
-        0x00, 0x02, // input[1] (amount)
-        0x00, 0x00, // output[0] (result)
+        0x00, // dst=0 (result register)
+        0x01, // src1=1 (current balance)  
+        0x02, // src2=2 (deposit amount)
     ]
 }
 
 pub fn build_borrow_ir(ltv_basis_points: u32) -> Vec<u8> {
-    let mut ir = vec![OP_GTE];
-    ir.extend_from_slice(&[0x00, 0x01]); // input[0] (collateral)
-    ir.extend_from_slice(&ltv_basis_points.to_le_bytes());
-    ir.extend_from_slice(&[0x00, 0x02]); // input[1] (debt)
-    ir.extend_from_slice(&[0x00, 0x00]); // output[0] (bool result)
+    let mut ir = Vec::new();
+    
+    // Step 1: MulCst - debt * ltv_ratio → temp register 3  
+    ir.push(OP_MUL_CST);
+    ir.push(0x03); // dst=3 (temp register)
+    ir.push(0x02); // src=2 (debt amount)
+    ir.push(0x00); // unused
+    ir.extend_from_slice(&ltv_basis_points.to_le_bytes()); // 4-byte constant
+    
+    // Step 2: GTE - collateral >= required_collateral
+    ir.push(OP_GTE);
+    ir.push(0x00); // dst=0 (result register)
+    ir.push(0x01); // src1=1 (collateral value)
+    ir.push(0x03); // src2=3 (debt * ltv_ratio)
+    
     ir
 }
 
 pub fn build_withdraw_ir() -> Vec<u8> {
     vec![
         OP_SUB,
-        0x00, 0x01, // input[0] (balance)
-        0x00, 0x02, // input[1] (amount) 
-        0x00, 0x00, // output[0] (result)
+        0x00, // dst=0 (result register)
+        0x01, // src1=1 (current balance)
+        0x02, // src2=2 (withdraw amount) 
     ]
 }
 
 pub fn build_liq_eligibility_ir(min_collateral_ratio_bp: u32) -> Vec<u8> {
-    let mut ir = vec![OP_GTE];
-    ir.extend_from_slice(&[0x00, 0x01]); // input[0] (collateral)
-    ir.extend_from_slice(&min_collateral_ratio_bp.to_le_bytes());
-    ir.extend_from_slice(&[0x00, 0x02]); // input[1] (debt)
-    ir.extend_from_slice(&[0x00, 0x00]); // output[0] (bool result)
+    let mut ir = Vec::new();
+    
+    // Step 1: MulCst - debt * min_collateral_ratio → temp register 3
+    ir.push(OP_MUL_CST);
+    ir.push(0x03); // dst=3 (temp register)
+    ir.push(0x02); // src=2 (debt amount)
+    ir.push(0x00); // unused
+    ir.extend_from_slice(&min_collateral_ratio_bp.to_le_bytes()); // 4-byte constant
+    
+    // Step 2: GTE - collateral >= minimum_required
+    ir.push(OP_GTE);
+    ir.push(0x00); // dst=0 (result register - liquidation eligible)
+    ir.push(0x01); // src1=1 (collateral value)
+    ir.push(0x03); // src2=3 (debt * min_ratio)
+    
     ir
 }
 
